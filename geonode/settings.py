@@ -62,7 +62,7 @@ DEBUG = ast.literal_eval(os.getenv('DEBUG', 'True'))
 # Set to True to load non-minified versions of (static) client dependencies
 # Requires to set-up Node and tools that are required for static development
 # otherwise it will raise errors for the missing non-minified dependencies
-DEBUG_STATIC = ast.literal_eval(os.getenv('DEBUG_STATIC', 'False'))
+DEBUG_STATIC = True # ast.literal_eval(os.getenv('DEBUG_STATIC', 'False'))
 
 FORCE_SCRIPT_NAME = os.getenv('FORCE_SCRIPT_NAME', '')
 
@@ -448,6 +448,7 @@ GEONODE_INTERNAL_APPS = (
 
 GEONODE_CONTRIB_APPS = (
     # GeoNode Contrib Apps
+    'geonode.mngmt_commands_http',
 )
 
 # Uncomment the following line to enable contrib apps
@@ -1756,10 +1757,10 @@ CELERY_RESULT_SERIALIZER = os.environ.get('CELERY_RESULT_SERIALIZER', 'geonode_j
 CELERY_ACCEPT_CONTENT = [CELERY_RESULT_SERIALIZER, ]
 
 # Set Tasks Queues
-# CELERY_TASK_DEFAULT_QUEUE = "default"
-# CELERY_TASK_DEFAULT_EXCHANGE = "default"
-# CELERY_TASK_DEFAULT_EXCHANGE_TYPE = "direct"
-# CELERY_TASK_DEFAULT_ROUTING_KEY = "default"
+CELERY_TASK_DEFAULT_QUEUE = "default"
+CELERY_TASK_DEFAULT_EXCHANGE = "default"
+CELERY_TASK_DEFAULT_EXCHANGE_TYPE = "direct"
+CELERY_TASK_DEFAULT_ROUTING_KEY = "default"
 CELERY_TASK_CREATE_MISSING_QUEUES = ast.literal_eval(os.environ.get('CELERY_TASK_CREATE_MISSING_QUEUES', 'True'))
 GEONODE_EXCHANGE = Exchange("default", type="topic", durable=True)
 CELERY_TASK_QUEUES = (

@@ -23,8 +23,10 @@ from geonode.layers.utils import upload
 from geonode.people.utils import get_valid_user
 import traceback
 import datetime
+from geonode.mngmt_commands_http.decorators import expose_command_over_http
 
 
+@expose_command_over_http
 class Command(BaseCommand):
     help = ("Brings a data file or a directory full of data files into a"
             " GeoNode site.  Layers are added to the Django database, the"

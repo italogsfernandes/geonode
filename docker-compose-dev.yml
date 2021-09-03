@@ -34,7 +34,7 @@ services:
     environment:
       - IS_CELERY=False
     entrypoint: ["/usr/src/geonode/entrypoint.sh"]
-    command: /bin/sh -c "while sleep 1000; do :; done"
+    command: /bin/sh -c "while sleep 1000; do :; done" # command: /bin/sh -c "./manage.py runserver 0.0.0.0:8000"
     ports:
       - "8000:8000"
 
@@ -45,10 +45,13 @@ services:
     container_name: celery4${COMPOSE_PROJECT_NAME}
     depends_on:
       - django
+      - db
+      - rabbitmq
     environment:
       - IS_CELERY=True
     entrypoint: ["/usr/src/geonode/entrypoint.sh"]
-    command: "celery-cmd"
+    # command: "celery-cmd"
+    command: bash -c "celery --workdir /srv/app/temshop -A temshop worker -l INFO --autoscale=7,1"
 
   # Geoserver backend
   geoserver:
