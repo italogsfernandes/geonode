@@ -16,6 +16,116 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 #########################################################################
-from django.test import TestCase
+from rest_framework import status
+from rest_framework.test import APITestCase
+from django.contrib.auth import get_user_model
+from .models import ManagementCommandJob
+from .utils import run_management_command
 
-# Create your tests here.
+class ManagementCommandsTestCase(APITestCase):
+    def setUp(self):
+        self.resource_url = "/api/v2/management/"
+        self.admin = get_user_model().objects.create_superuser(
+            username="admin",
+            password="admin",
+            email="admin@geonode.org",
+        )
+        self.non_admin_user = get_user_model().objects.create_user(
+            username="some_user",
+            password="some_password",
+            email="some_user@geonode.org",
+        )
+        self.client.force_authenticate(self.admin)
+
+    def test_management_commands_list(self):
+        expected_payload = {
+            "success": True,
+            "error": None,
+            "data": ['ping_mngmt_commands_http'],
+        }
+        response = self.client.get(self.resource_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), expected_payload)
+
+    def test_management_commands_list_forbidden(self):
+        self.client.force_authenticate(self.non_admin_user)
+        response = self.client.get(self.resource_url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_management_commands_detail(self):
+        cmd_name = "ping_mngmt_commands_http"
+        resource_url = f"/api/v2/management/{cmd_name}/"
+        response = self.client.get(resource_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertTrue(response_json['success'])
+        self.assertIn(cmd_name, response_json['data'])
+
+
+    def test_management_commands_detail_not_found(self):
+        cmd_name = "some_unavaliable_command"
+        resource_url = f"/api/v2/management/{cmd_name}/"
+        response = self.client.get(resource_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_management_commands_create(self):
+        cmd_name = "ping_mngmt_commands_http"
+        resource_url = f"/api/v2/management/{cmd_name}/"
+        response = self.client.post(resource_url)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_json = response.json()
+        self.assertTrue(response_json['success'])
+        self.assertEqual(response_json['data']["command"], cmd_name)
+        self.assertEqual(
+            response_json['data']["status"], ManagementCommandJob.QUEUED
+        )
+
+    def test_management_commands_create_autostart_off(self):
+        cmd_name = "ping_mngmt_commands_http"
+        resource_url = f"/api/v2/management/{cmd_name}/"
+        response = self.client.post(resource_url, data={"autostart": "false"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            response.json()['data']["status"], ManagementCommandJob.CREATED
+        )
+    
+    def test_management_commands_create_not_allowed(self):
+        resource_url = f"/api/v2/management/"
+        response = self.client.post(resource_url)
+        self.assertEqual(
+            response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def test_management_commands_create_not_found(self):
+        cmd_name = "some_unavaliable_command"
+        resource_url = f"/api/v2/management/{cmd_name}/"
+        response = self.client.post(resource_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_management_commands_create_bad_request(self):
+        cmd_name = "ping_mngmt_commands_http"
+        resource_url = f"/api/v2/management/{cmd_name}/"
+        response = self.client.post(resource_url, data={"args": ["--help"]})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class JobRunnerTestCase(APITestCase):
+    def setUp(self):
+        self.admin = get_user_model().objects.create_superuser(
+            username="admin",
+            password="admin",
+            email="admin@geonode.org",
+        )
+        self.job = ManagementCommandJob.objects.create(
+            command="ping_mngmt_commands_http",
+            app_name="mngmt_commands_http",
+            user=self.admin,
+            status=ManagementCommandJob.CREATED,
+        )
+
+    def test_run_management_command(self):
+        run_management_command(self.job.id)
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.status, ManagementCommandJob.FINISHED)
+        self.assertIn("pong", self.job.output_message)
+
