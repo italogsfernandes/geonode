@@ -38,11 +38,12 @@ def get_management_commands():
     return available_commands
 
 
-def get_management_command_details(command_class):
+def get_management_command_details(command_class, command_name):
     """
     Get the help output of the management command.
     """
+    parser =command_class.create_parser('', command_name)
     with io.StringIO() as output:
-        command_class.print_help(output)
+        parser.print_help(output)
         cmd_help_output = output.getvalue()
     return cmd_help_output

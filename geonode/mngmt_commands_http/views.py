@@ -25,7 +25,8 @@ class ManagementCommandView(views.APIView):
 
         # Object Details: fetch help text of the Command
         cmd_details = get_management_command_details(
-            self.available_commands[cmd_name]["command_class"]
+            self.available_commands[cmd_name]["command_class"],
+            cmd_name
         )
         return Response({"success": True, "error": None, "data": cmd_details})
 
