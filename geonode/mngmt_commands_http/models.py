@@ -17,7 +17,6 @@
 #
 #########################################################################
 from django.contrib.auth import get_user_model
-from django.core import exceptions
 from django.db import models
 
 
@@ -47,8 +46,8 @@ class ManagementCommandJob(models.Model):
     modified_at = models.DateTimeField(auto_now=True)
 
     # NOTE: Change to JsonField when updating to django 3.1
-    args = models.TextField(null=True)
-    kwargs = models.TextField(null=True)
+    args = models.TextField(default="[]", blank=True)
+    kwargs = models.TextField(default="{}", blank=True)
 
     celery_result_id = models.UUIDField(null=True, blank=True)
     output_message = models.TextField(null=True)
@@ -67,16 +66,12 @@ class ManagementCommandJob(models.Model):
 
     def start_task(self):
         from .tasks import run_management_command_async
-
-        if self.status != self.CREATED:
-            raise exceptions.BadRequest
         self.status = self.QUEUED
         self.save()
         run_management_command_async.delay(job_id=self.id)
 
     def stop_task(self):
         from geonode.celery_app import app as celery_app
-
         celery_app.control.terminate(self.celery_result_id)
 
     @property
@@ -84,7 +79,7 @@ class ManagementCommandJob(models.Model):
         from .tasks import run_management_command_async
 
         if not self.celery_result_id:
-            return None
+            return {}
         async_result = run_management_command_async.AsyncResult(self.celery_result_id)
         task_meta = async_result.backend.get_task_meta(self.celery_result_id)
         return task_meta

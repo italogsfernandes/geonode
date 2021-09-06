@@ -60,7 +60,8 @@ class JobRunner:
 
     def __enter__(self):
         self.job.status = ManagementCommandJob.STARTED
-        self.job.celery_result_id = self.celery_result_id
+        if self.celery_result_id:
+            self.job.celery_result_id = self.celery_result_id
         self.job.start_time = timezone.now()
         self.job.save()
         return self.job
@@ -79,7 +80,6 @@ def run_management_command(job_id, async_result_id:str=""):
     Loads the job model from database and run it using `call_command` inside a
     context responsible to updating the status and redirecting stdout and
     stderr.
-    TODO: Write Test
     """
     job = ManagementCommandJob.objects.get(id=job_id)
     with io.StringIO() as output:

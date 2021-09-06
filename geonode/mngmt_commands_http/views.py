@@ -80,7 +80,7 @@ class ManagementCommandView(views.APIView):
         """
         args = request.data.get("args", [])
         kwargs = request.data.get("kwargs", {})
-        autostart = request.data.get("autostart", True)
+        autostart = json.loads(request.data.get("autostart", 'true'))
         self.available_commands = get_management_commands()
 
         # Missing details
@@ -92,8 +92,10 @@ class ManagementCommandView(views.APIView):
 
         # Object not found
         if cmd_name not in self.available_commands:
-            return Response({"success": False, "error": "Command not found"},
-            status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"success": False, "error": "Command not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
         # Forbidden argument
         if "--help" in args:
@@ -125,8 +127,11 @@ class ManagementCommandView(views.APIView):
             instance=job,
             context={'request': request}
         )
-        return Response({
-            "success": True,
-            "error": None,
-            "data": serializer.data,
-        })
+        return Response(
+            {
+                "success": True,
+                "error": None,
+                "data": serializer.data,
+            },
+            status=status.HTTP_201_CREATED
+        )
