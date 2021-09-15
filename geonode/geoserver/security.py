@@ -76,8 +76,14 @@ class GeofenceLayerAdapter(object):
             dataset.alternate.split(":")[0]
         )
         if xml:
-            return list_geofence_layer_rules_xml(workspace, dataset_name)
-        return list_geofence_layer_rules(workspace, dataset_name)
+            rules = list_geofence_layer_rules_xml(workspace, dataset_name)
+            if not rules or len(rules) == 0:
+                rules = list_geofence_layer_rules_xml(workspace, dataset.alternate)
+            return rules
+        rules = list_geofence_layer_rules(workspace, dataset_name)
+        if not rules or len(rules) == 0:
+            rules = list_geofence_layer_rules(workspace, dataset.alternate)
+        return rules
 
     def delete_rules(self, ids):
         self.set_has_committed_changes()
@@ -137,6 +143,7 @@ class GeofenceLayerRulesUnitOfWork(object):
     def __init__(self, geofence_adapter):
         self.adapter = geofence_adapter
         self.requests_list = []
+        self.nested_contexts = 0
         self.adapter_requests_map = {
             "purge_rules": self.adapter.purge_rules,
             "delete_rules": self.adapter.delete_rules,
@@ -146,13 +153,16 @@ class GeofenceLayerRulesUnitOfWork(object):
         }
 
     def __enter__(self):
+        self.nested_contexts += 1
         return self
 
     def __exit__(self, exc_type, exc_value, exc_tb):
-        if not exc_type:
-            self._execute_requests()
-        else:
-            self.rollback()
+        self.nested_contexts -= 1
+        if self.nested_contexts == 0:
+            if not exc_type:
+                self._execute_requests()
+            else:
+                self.rollback()
 
     def _execute_requests(self):
         print(f"##### UOW | _execute_requests (len = {len(self.requests_list)})")
@@ -164,7 +174,9 @@ class GeofenceLayerRulesUnitOfWork(object):
 
     def rollback(self):
         print(f"##### UOW | rollback")
+        self.rollback_was_called = True
         self.adapter.rollback()
+        self.requests_list = []
 
     def _add_request(self, request_details):
         print(f"##### UOW | {request_details['name']}")
@@ -530,6 +542,8 @@ def purge_geofence_dataset_rules(resource):
     dataset_name = dataset.name if dataset and hasattr(dataset, 'name') else dataset.alternate.split(":")[0]
     try:
         rules = list_geofence_layer_rules(workspace, dataset_name)
+        if not rules or len(rules) == 0:
+            rules = list_geofence_layer_rules(workspace, dataset.alternate)
         batch_delete_geofence_layer_rules([rule["id"] for rule in rules])
     except Exception as e:
         logger.exception(e)
@@ -781,6 +795,9 @@ def sync_geofence_with_guardian(dataset, perms, user=None, group=None, group_per
     """
     _dataset_name = dataset.name if dataset and hasattr(dataset, 'name') else dataset.alternate.split(":")[0]
     _dataset_workspace = get_dataset_workspace(dataset)
+    _rules = list_geofence_layer_rules(_dataset_workspace, _dataset_name)
+    if not _rules or len(_rules) == 0:
+        _dataset_name = dataset.alternate
     # Create new rule-set
     gf_services = _get_gf_services(dataset, perms)
 

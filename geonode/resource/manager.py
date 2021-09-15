@@ -180,13 +180,13 @@ class ResourceManagerInterface(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def remove_permissions(self, uuid: str, /, instance: ResourceBase = None) -> bool:
+    def remove_permissions(self, uuid: str, /, instance: ResourceBase = None, geofence_uow: GeofenceLayerRulesUnitOfWork = None) -> bool:
         """Completely cleans the permissions of a resource, resetting it to the default state (owner only)
         """
         pass
 
     @abstractmethod
-    def set_permissions(self, uuid: str, /, instance: ResourceBase = None, owner: settings.AUTH_USER_MODEL = None, permissions: dict = {}, created: bool = False) -> bool:
+    def set_permissions(self, uuid: str, /, instance: ResourceBase = None, owner: settings.AUTH_USER_MODEL = None, permissions: dict = {}, created: bool = False, geofence_uow: GeofenceLayerRulesUnitOfWork = None) -> bool:
         """Sets the permissions of a resource.
 
          - It optionally gets a JSON 'perm_spec' through the 'permissions' parameter
@@ -195,7 +195,7 @@ class ResourceManagerInterface(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def set_workflow_permissions(self, uuid: str, /, instance: ResourceBase = None, approved: bool = False, published: bool = False) -> bool:
+    def set_workflow_permissions(self, uuid: str, /, instance: ResourceBase = None, approved: bool = False, published: bool = False, geofence_uow: GeofenceLayerRulesUnitOfWork = None) -> bool:
         """Fix-up the permissions of a Resource accordingly to the currently active advanced workflow configuraiton"""
         pass
 
@@ -529,8 +529,9 @@ class ResourceManager(ResourceManagerInterface):
         _resource = instance or ResourceManager._get_instance(uuid)
         if _resource:
             _resource.set_processing_state(enumerations.STATE_RUNNING)
+            geofence_uow = geofence_uow or GeofenceLayerRulesUnitOfWork(GeofenceLayerAdapter(_resource))
             try:
-                with transaction.atomic():
+                with transaction.atomic(), geofence_uow:
                     logger.debug(f'Removing all permissions on {_resource}')
                     from geonode.layers.models import Dataset
                     _dataset = _resource.get_real_instance() if isinstance(_resource.get_real_instance(), Dataset) else None
@@ -556,8 +557,7 @@ class ResourceManager(ResourceManagerInterface):
                         object_pk=_resource.id).delete()
                     return self._concrete_resource_manager.remove_permissions(uuid, instance=_resource, geofence_uow=geofence_uow)
             except Exception as e:
-                if geofence_uow:
-                    geofence_uow.rollback()
+                geofence_uow.rollback()
                 logger.exception(e)
                 _resource.set_processing_state(enumerations.STATE_INVALID)
                 _resource.set_dirty_state()
@@ -565,15 +565,15 @@ class ResourceManager(ResourceManagerInterface):
                 _resource.set_processing_state(enumerations.STATE_PROCESSED)
         return False
 
-    def set_permissions(self, uuid: str, /, instance: ResourceBase = None, owner: settings.AUTH_USER_MODEL = None, permissions: dict = {}, created: bool = False) -> bool:
+    def set_permissions(self, uuid: str, /, instance: ResourceBase = None, owner: settings.AUTH_USER_MODEL = None, permissions: dict = {}, created: bool = False, geofence_uow: GeofenceLayerRulesUnitOfWork = None) -> bool:
         _resource = instance or ResourceManager._get_instance(uuid)
         if _resource:
             _resource = _resource.get_real_instance()
             _resource.set_processing_state(enumerations.STATE_RUNNING)
             logger.debug(f'Finalizing (permissions and notifications) on resource {instance}')
-            geofence_adapter =  GeofenceLayerAdapter(_resource)
+            geofence_uow = geofence_uow or GeofenceLayerRulesUnitOfWork(GeofenceLayerAdapter(_resource))
             try:
-                with transaction.atomic(), GeofenceLayerRulesUnitOfWork(geofence_adapter) as geofence_uow:
+                with transaction.atomic(), geofence_uow:
                     logger.debug(f'Setting permissions {permissions} on {_resource}')
 
                     # default permissions for owner
@@ -698,7 +698,7 @@ class ResourceManager(ResourceManagerInterface):
                     _resource.handle_moderated_uploads()
                     return self._concrete_resource_manager.set_permissions(uuid, instance=_resource, owner=owner, permissions=permissions, created=created, geofence_uow=geofence_uow)
             except Exception as e:
-                geofence_adapter.rollback()
+                geofence_uow.rollback()
                 logger.exception(e)
                 _resource.set_processing_state(enumerations.STATE_INVALID)
                 _resource.set_dirty_state()
@@ -706,7 +706,7 @@ class ResourceManager(ResourceManagerInterface):
                 _resource.set_processing_state(enumerations.STATE_PROCESSED)
         return False
 
-    def set_workflow_permissions(self, uuid: str, /, instance: ResourceBase = None, approved: bool = False, published: bool = False) -> bool:
+    def set_workflow_permissions(self, uuid: str, /, instance: ResourceBase = None, approved: bool = False, published: bool = False, geofence_uow: GeofenceLayerRulesUnitOfWork = None) -> bool:
         """
                           |  N/PUBLISHED   | PUBLISHED
           --------------------------------------------
@@ -717,9 +717,9 @@ class ResourceManager(ResourceManagerInterface):
         _resource = instance or ResourceManager._get_instance(uuid)
         if _resource:
             _resource.set_processing_state(enumerations.STATE_RUNNING)
-            geofence_adapter =  GeofenceLayerAdapter(_resource)
+            geofence_uow = geofence_uow or GeofenceLayerRulesUnitOfWork(GeofenceLayerAdapter(_resource))
             try:
-                with transaction.atomic(), GeofenceLayerRulesUnitOfWork(geofence_adapter) as geofence_uow:
+                with transaction.atomic(), geofence_uow:
                     anonymous_group = Group.objects.get(name='anonymous')
                     if approved:
                         _members_group_name = groups_settings.REGISTERED_MEMBERS_GROUP_NAME
@@ -734,7 +734,7 @@ class ResourceManager(ResourceManagerInterface):
 
                     return self._concrete_resource_manager.set_workflow_permissions(uuid, instance=_resource, approved=approved, published=published, geofence_uow=geofence_uow)
             except Exception as e:
-                geofence_adapter.rollback()
+                geofence_uow.rollback()
                 logger.exception(e)
                 _resource.set_processing_state(enumerations.STATE_INVALID)
                 _resource.set_dirty_state()
