@@ -32,14 +32,16 @@ from django.db.models import F
 from django.urls import reverse
 from django.conf import settings
 from django.contrib import messages
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 from django.forms.utils import ErrorList
 from django.utils.translation import ugettext as _
 from django.contrib.auth.decorators import login_required
+from django.template import loader
 from django.views.generic.edit import UpdateView, CreateView
 from django.http import HttpResponse, HttpResponseRedirect, Http404
 from django.core.exceptions import PermissionDenied, ObjectDoesNotExist
 
+from geonode.client.hooks import hookset
 from geonode.utils import resolve_object
 from geonode.base.views import batch_modify
 from geonode.utils import build_social_links
@@ -64,9 +66,7 @@ from geonode.base.models import (
     Thesaurus,
     TopicCategory)
 
-from .utils import (
-    get_download_response,
-    get_doc_extension)
+from .utils import get_download_response
 
 from .enumerations import (
     DOCUMENT_TYPE_MAP,
@@ -210,21 +210,33 @@ def document_link(request, docid):
 
 
 def document_embed(request, docid):
-    response = get_download_response(request, docid)
-    fileurl = response.file.name.replace(settings.PROJECT_ROOT, "")
-    IMGTYPES = [_e for _e, _t in DOCUMENT_TYPE_MAP.items() if _t == 'image']
-    extension = get_doc_extension(request, docid)
-    context_dict = {
-        "image_url":  fileurl,
-    }
-    if extension in IMGTYPES:
+    from django.http.response import HttpResponseRedirect
+    document = get_object_or_404(Document, pk=docid)
+
+    if not request.user.has_perm(
+            'base.download_resourcebase',
+            obj=document.get_self_resource()):
+        return HttpResponse(
+            loader.render_to_string(
+                '401.html', context={
+                    'error_message': _("You are not allowed to view this document.")}, request=request), status=401)
+    if document.is_image:
+        if document.doc_url:
+            imageurl = document.doc_url
+        else:
+            imageurl = reverse('document_link', args=(document.id,))
+        context_dict = {
+            "image_url":  imageurl,
+        }
         return render(
             request,
             "documents/document_embed.html",
             context_dict
         )
-
-    return response
+    if document.doc_url:
+        return HttpResponseRedirect(document.doc_url)
+    else:
+        return get_download_response(request, docid)
 
 
 class DocumentUploadView(CreateView):
@@ -301,6 +313,7 @@ class DocumentUploadView(CreateView):
         regions = []
         keywords = []
         bbox = None
+        url = hookset.document_detail_url(self.object)
 
         out = {'success': False}
 
@@ -334,11 +347,7 @@ class DocumentUploadView(CreateView):
 
         if self.request.GET.get('no__redirect', False):
             out['success'] = True
-            out['url'] = reverse(
-                'document_detail',
-                args=(
-                    self.object.id,
-                ))
+            out['url'] = url
             if out['success']:
                 status_code = 200
             else:
@@ -348,12 +357,7 @@ class DocumentUploadView(CreateView):
                 content_type='application/json',
                 status=status_code)
         else:
-            return HttpResponseRedirect(
-                reverse(
-                    'document_detail',
-                    args=(
-                        self.object.id,
-                    )))
+            return HttpResponseRedirect(url)
 
 
 class DocumentUpdateView(UpdateView):
@@ -379,15 +383,10 @@ class DocumentUpdateView(UpdateView):
                 'doc_url': form.cleaned_data.get('doc_url'),
                 'user': self.request.user
             })
-
+        url = hookset.document_detail_url(self.object)
         register_event(self.request, EventType.EVENT_CHANGE, self.object)
 
-        return HttpResponseRedirect(
-            reverse(
-                'document_detail',
-                args=(
-                    self.object.id,
-                )))
+        return HttpResponseRedirect(url)
 
 
 @login_required
@@ -536,13 +535,9 @@ def document_metadata(
         document_form.save_many2many()
 
         register_event(request, EventType.EVENT_CHANGE_METADATA, document)
+        url = hookset.document_detail_url(document)
         if not ajax:
-            return HttpResponseRedirect(
-                reverse(
-                    'document_detail',
-                    args=(
-                        document.id,
-                    )))
+            return HttpResponseRedirect(url)
         message = document.id
 
         try:
