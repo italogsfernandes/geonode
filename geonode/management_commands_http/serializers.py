@@ -16,9 +16,13 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 #########################################################################
+import json
+
 from rest_framework import serializers
 from geonode.management_commands_http.models import ManagementCommandJob
-
+from geonode.management_commands_http.utils.commands import (
+    get_management_commands,
+)
 
 class ManagementCommandJobSerializer(serializers.ModelSerializer):
     class Meta:
@@ -39,7 +43,39 @@ class ManagementCommandJobSerializer(serializers.ModelSerializer):
         ]
 
 
-class ManagementCommandJobCreateSerializer(serializers.Serializer):
+class ManagementCommandJobCreateSerializer(serializers.ModelSerializer):
     args = serializers.JSONField(required=False, default=[])
     kwargs = serializers.JSONField(required=False, default={})
     autostart = serializers.BooleanField(required=False, default=True)
+    user = serializers.HiddenField(
+       default=serializers.CurrentUserDefault()
+    )
+
+    class Meta:
+        model = ManagementCommandJob
+        fields = [
+            'command',
+            'user',
+            'args',
+            'kwargs',
+            'autostart',
+        ]
+
+    def validate(self, attrs):
+        # import ipdb; ipdb.set_trace()
+        available_commands = get_management_commands()
+        if attrs["command"] not in available_commands:
+            raise serializers.ValidationError('Command not found')
+        
+        if "--help" in attrs["args"]:
+            raise serializers.ValidationError('Forbidden argument: "--help"')
+
+        attrs["args"] = json.dumps(attrs["args"])
+        attrs["kwargs"] = json.dumps(attrs["kwargs"])
+        return super().validate(attrs)
+
+    def create(self, validated_data):
+        # import ipdb; ipdb.set_trace()
+        validated_data.pop("autostart")
+        return super().create(validated_data)
+    

@@ -16,7 +16,11 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 #########################################################################
-from django.contrib import admin
+from typing_extensions import final
+from django import forms
+
+from django.contrib import admin, messages
+from django.forms.models import ModelForm
 
 from geonode.management_commands_http.models import ManagementCommandJob
 from geonode.management_commands_http.utils.jobs import (
@@ -25,14 +29,19 @@ from geonode.management_commands_http.utils.jobs import (
     get_celery_task_meta,
 )
 
+from geonode.management_commands_http.forms import ManagementCommandJobAdminForm
 
 @admin.register(ManagementCommandJob)
 class ManagementCommandJobAdmin(admin.ModelAdmin):
+    form = ManagementCommandJobAdminForm
+
     """
     Allow us to see the Jobs on admin, and (re-)execute a job if needed.
     """
-
+    actions = ["start", "stop"]
+    list_per_page = 20
     list_display = (
+        "id",
         "command",
         "app_name",
         "user",
@@ -45,30 +54,17 @@ class ManagementCommandJobAdmin(admin.ModelAdmin):
         "celery_result_id",
     )
     list_filter = ("command", "app_name", "user")
-    list_per_page = 20
-
     search_fields = ("command", "app_name", "user", "celery_result_id")
-    readonly_fields = (
-        "celery_result_id",
-        "command",
-        "app_name",
-        "user",
-        "created_at",
-        "start_time",
-        "end_time",
-        "modified_at",
-        "status",
-        "args",
-        "kwargs",
-        "output_message",
-        "celery_state",
-        "celery_traceback",
-    )
-    actions = ["execute", "stop"]
+    fields = ("command", "args", "kwargs", "autostart",)
+    readonly_fields = ("created_at", "modified_at",)
 
-    def execute(self, request, queryset):
+
+    def start(self, request, queryset):
         for job in queryset:
-            start_task(job)
+            try:
+                start_task(job)
+            except ValueError as exc:
+                messages.error(request, str(exc))
 
     def stop(self, request, queryset):
         for job in queryset:
@@ -80,8 +76,35 @@ class ManagementCommandJobAdmin(admin.ModelAdmin):
     def celery_traceback(self, instance):
         return get_celery_task_meta(instance).get("traceback")
 
-    def has_add_permission(self, request, obj=None):
+    def has_change_permission(self, request, obj=None):
         return False
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    def save_model(self, request, obj, form, change):
+        obj.user = request.user
+        obj.save()
+        autostart = form.cleaned_data.get("autostart", False)
+        if autostart and not change:
+            start_task(obj)
+
+    def change_view(self, request, object_id, form_url='', extra_context=None):
+        self.form = ModelForm
+        self.fields = (
+            "celery_result_id",
+            "user",
+            "command",
+            "app_name",
+            "args",
+            "kwargs",
+            "created_at",
+            "start_time",
+            "end_time",
+            "modified_at",
+            "status",
+            "output_message",
+            "celery_state",
+            "celery_traceback",
+        )
+        return super().change_view(request, object_id, form_url, extra_context)

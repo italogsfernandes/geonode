@@ -47,7 +47,7 @@ class ManagementCommandsTestCase(APITestCase):
             "success": True,
             "error": None,
             "data": [
-                'sync_geonode_layers',
+               'sync_geonode_layers',
                'sync_geonode_maps',
                'updatelayers',
                'ping_mngmt_commands_http',

@@ -18,10 +18,13 @@
 #########################################################################
 import json
 
-from rest_framework import permissions, status, views
+from rest_framework import permissions, serializers, status, views, viewsets, mixins
 from rest_framework.response import Response
 
+from django_filters.rest_framework import DjangoFilterBackend
+
 from geonode.management_commands_http.models import ManagementCommandJob
+from geonode.management_commands_http.filters import ManagementCommandJobFilterSet
 from geonode.management_commands_http.serializers import (
     ManagementCommandJobSerializer,
     ManagementCommandJobCreateSerializer,
@@ -31,6 +34,8 @@ from geonode.management_commands_http.utils.commands import (
     get_management_commands,
 )
 from geonode.management_commands_http.utils.jobs import start_task
+
+from geonode.base.api.pagination import GeoNodeApiPagination
 
 
 class ManagementCommandView(views.APIView):
@@ -53,17 +58,14 @@ class ManagementCommandView(views.APIView):
             )
 
         # Object Details: fetch help text of the Command
-        cmd_details = get_management_command_details(
-            self.available_commands[cmd_name]["command_class"],
-            cmd_name
-        )
+        cmd_details = get_management_command_details(cmd_name)
         return Response({"success": True, "error": None, "data": cmd_details})
 
     def list(self):
         return Response({
             "success": True,
             "error": None,
-            "data": self.available_commands.keys()
+            "data": self.available_commands
         })
 
     def get(self, request, cmd_name=None):
@@ -86,7 +88,7 @@ class ManagementCommandView(views.APIView):
         By default, autostart is set to true.
         """
         create_serializer = ManagementCommandJobCreateSerializer(
-            data=request.data
+            data={"command": cmd_name, "user": request.user, **request.data}
         )
         create_serializer.is_valid(raise_exception=True)
         args = create_serializer.validated_data.get('args', [])
@@ -122,11 +124,9 @@ class ManagementCommandView(views.APIView):
         # Perform Create
         obj_data = {
             "command": cmd_name,
-            "app_name": self.available_commands[cmd_name]["app"],
             "user": request.user,
             "args": json.dumps(args),
             "kwargs": json.dumps(kwargs),
-            "status": ManagementCommandJob.CREATED,
         }
         job = ManagementCommandJob.objects.create(**obj_data)
 
@@ -143,3 +143,51 @@ class ManagementCommandView(views.APIView):
             },
             status=status.HTTP_201_CREATED
         )
+
+
+class ManagementCommandJobViewSet(
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet
+):
+    permission_classes = [permissions.IsAdminUser]
+    queryset = ManagementCommandJob.objects.all().order_by("id")
+    serializer_class = ManagementCommandJobSerializer
+    filter_class = ManagementCommandJobFilterSet
+    filter_backends = (DjangoFilterBackend,)
+    pagination_class = GeoNodeApiPagination
+
+
+    def initialize_request(self, request, *args, **kwargs):
+        response = super(ManagementCommandJobViewSet, self).initialize_request(request, *args, **kwargs)
+        print(f"self.action: {self.action}")
+        return response
+
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            serializer = ManagementCommandJobCreateSerializer
+        else:
+            serializer = super().get_serializer_class()
+
+        return serializer
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response({"items": serializer.data})
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def perform_create(self, serializer):
+        autostart = serializer.validated_data.get('autostart', True)
+        job = serializer.save()
+        if autostart:
+            start_task(job)
