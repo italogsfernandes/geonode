@@ -323,6 +323,75 @@ def scan_file(file_name, scan_hint=None, charset=None):
     return SpatialFiles(dirname, found, archive=archive)
 
 
+def scan_file_with_file_list(file_name, scan_hint=None, charset=None, file_list=[]):
+    '''get a list of SpatialFiles for the provided file'''
+    if not os.path.exists(file_name): # TODO: remove
+        try:
+            if not storage_manager.exists(file_name):
+                raise Exception(_("Could not access to uploaded data."))
+        except SuspiciousFileOperation:
+            pass
+
+    dirname = os.path.dirname(file_name)
+    paths = []
+    if zipfile.is_zipfile(file_name) or len(os.path.splitext(file_name)) > 0 and os.path.splitext(file_name)[1].lower() == '.zip':
+        try:
+            paths, kept_zip = _process_zip(
+                file_name,
+                dirname,
+                scan_hint=scan_hint,
+                charset=charset)
+            archive = file_name if kept_zip else None
+        except Exception as e:
+            logger.debug(e)
+            archive = file_name
+    else:
+        if not file_list:
+            file_list = [os.path.join(dirname, file) for file in os.listdir(dirname)]
+        for file in file_list:
+            try:
+                fixup_shp_columnnames(file, charset)
+            except Exception as e:
+                logger.debug(e)
+            paths.append(file)
+        archive = None
+    if paths is not None:
+        safe_paths = _rename_files(paths)
+    else:
+        safe_paths = []
+
+    found = []
+    for file_type in types:
+        for path in safe_paths:
+            path_extension = os.path.splitext(path)[-1][1:]
+            hint_ok = (scan_hint is None or file_type.code == scan_hint or
+                       scan_hint in file_type.aliases)
+            if file_type.matches(path_extension) and hint_ok:
+                _f = file_type.build_spatial_file(path, safe_paths)
+                found_paths = [f.base_file for f in found]
+                if path not in found_paths:
+                    found.append(_f)
+
+    # detect xmls and assign if a single upload is found
+    xml_files = _find_file_type(safe_paths, extension='.xml')
+    if xml_files:
+        if len(found) == 1:
+            found[0].xml_files = xml_files
+        else:
+            raise Exception(_("One or more XML files was provided, but no matching files were found for them."))
+
+    # detect slds and assign if a single upload is found
+    sld_files = _find_file_type(safe_paths, extension='.sld')
+    if sld_files:
+        if len(found) == 1:
+            found[0].sld_files = sld_files
+        else:
+            raise Exception(_("One or more SLD files was provided, but no matching files were found for them."))
+    return SpatialFiles(dirname, found, archive=archive)
+
+
+
+
 def _process_zip(zip_path, destination_dir, scan_hint=None, charset=None):
     """Perform sanity checks on uploaded zip file
 

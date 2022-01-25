@@ -72,7 +72,9 @@ from .models import (
     Upload)
 from .files import (
     get_scan_hint,
-    scan_file)
+    scan_file,
+    scan_file_with_file_list,
+)
 from .utils import (
     _ALLOW_TIME_STEP,
     _SUPPORTED_CRS,
@@ -148,21 +150,26 @@ def save_step_view(req, session):
     if form.is_valid():
         tempdir = tempfile.mkdtemp(dir=settings.STATIC_ROOT)
         logger.debug(f"valid_extensions: {form.cleaned_data['valid_extensions']}")
+        # TODO: See that part without files, using remote files (urls) or remote file class.
+        file_list = form.get_uploaded_or_smartopen_files_paths()
         relevant_files = select_relevant_files(
             form.cleaned_data["valid_extensions"],
-            iter(req.FILES.values())
+            file_list
         )
         logger.debug(f"relevant_files: {relevant_files}")
-        write_uploaded_files_to_disk(tempdir, relevant_files)
-        base_file = os.path.join(tempdir, form.cleaned_data["base_file"].name)
+        # TODO: avoid writting
+        # write_uploaded_files_to_disk(tempdir, relevant_files)
+        # base_file = os.path.join(tempdir, form.cleaned_data["base_file"].name)
+        base_file = form.cleaned_data['base_file_path'].uri_path
         name, ext = os.path.splitext(os.path.basename(base_file))
         logger.debug(f'Name: {name}, ext: {ext}')
         logger.debug(f"base_file: {base_file}")
         scan_hint = get_scan_hint(form.cleaned_data["valid_extensions"])
-        spatial_files = scan_file(
+        spatial_files = scan_file_with_file_list(
             base_file,
+            file_list=relevant_files,
             scan_hint=scan_hint,
-            charset=form.cleaned_data["charset"]
+            charset=form.cleaned_data["charset"],
         )
         logger.debug(f"spatial_files: {spatial_files}")
 

@@ -140,8 +140,10 @@ class UploadViewSet(DynamicModelViewSet):
         """)
     @action(detail=False, methods=['post'])
     def upload(self, request, format=None):
-        if not getattr(request, 'FILES', None):
-            raise ParseError(_("Empty content"))
+        # TODO: remove/change to also verify remote upload
+        # TODO: add bool in form to indicate if it's a remote or not
+        # if not getattr(request, 'FILES', None):
+        #    raise ParseError(_("Empty content"))
 
         user = request.user
         if not user or not user.is_authenticated:

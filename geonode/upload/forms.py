@@ -18,6 +18,7 @@
 #########################################################################
 
 import logging
+import smart_open  # TODO: remove if not needed
 
 from django import forms
 from django.core.exceptions import ValidationError
@@ -37,15 +38,21 @@ logger = logging.getLogger(__name__)
 
 
 class LayerUploadForm(forms.Form):
-    base_file = forms.FileField()
+    base_file = forms.FileField(required=False)
+    base_file_path = forms.CharField(required=False) # Todo: create smartopen URI field
     dbf_file = forms.FileField(required=False)
+    dbf_file_path = forms.CharField(required=False) # Todo: create smartopen URI field
     shx_file = forms.FileField(required=False)
+    shx_file_path = forms.CharField(required=False) # Todo: create smartopen URI field
     prj_file = forms.FileField(required=False)
+    prj_file_path = forms.CharField(required=False) # Todo: create smartopen URI field
     xml_file = forms.FileField(required=False)
+    xml_file_path = forms.CharField(required=False) # Todo: create smartopen URI field
     charset = forms.CharField(required=False)
 
     if check_ogc_backend(geoserver.BACKEND_PACKAGE):
         sld_file = forms.FileField(required=False)
+        sld_file_path = forms.CharField(required=False) # Todo: create smartopen URI field
 
     time = forms.BooleanField(required=False)
 
@@ -82,18 +89,54 @@ class LayerUploadForm(forms.Form):
 
     def clean(self):
         cleaned = super().clean()
+        base_file = self.cleaned_data.get('base_file')
+        base_file_path = self.cleaned_data.get('base_file_path')
+
+        if not base_file and not base_file_path and "base_file" not in self.errors and "base_file_path" not in self.errors:
+            logger.error("Base file must be a file or url.")
+            raise forms.ValidationError(_("Base file must be a file or url."))
+
+        if base_file and base_file_path:
+            logger.error("Base file cannot have both a file and a url.")
+            raise forms.ValidationError(
+                _("Base file cannot have both a file and a url."))
+
         if self.errors:
             # Something already went wrong
             return cleaned
+
+        self.validate_smart_open_files(cleaned)
+
         self.validate_files_sum_of_sizes()
         uploaded_files = self._get_uploaded_files()
+        uploaded_files_paths = self._get_files_paths()
+        # Todo: get file name not based on url, it sometimes can be misleading
+        base_file = cleaned.get("base_file", None)
+        base_file_name = base_file.name if base_file else cleaned.get("base_file_path").uri_path
+
         valid_extensions = validate_uploaded_files(
             cleaned=cleaned,
             uploaded_files=uploaded_files,
-            field_spatial_types=self.spatial_files
+            uploaded_files_paths=uploaded_files_paths,
+            field_spatial_types=self.spatial_files,
+            base_file_name=base_file_name,
         )
         cleaned["valid_extensions"] = valid_extensions
         return cleaned
+
+    def validate_smart_open_files(self, cleaned_data):
+        smartopen_file_fields = [
+            "base_file_path",
+            "dbf_file_path",
+            "shx_file_path",
+            "prj_file_path",
+            "xml_file_path",
+            "sld_file_path",
+        ]
+        for file_field in smartopen_file_fields:
+            value = cleaned_data.get(file_field, None)
+            if value and isinstance(value, str):
+                cleaned_data[file_field] = smart_open.parse_uri(value)
 
     def validate_files_sum_of_sizes(self):
         max_size = self._get_uploads_max_size()
@@ -114,6 +157,33 @@ class LayerUploadForm(forms.Form):
         """Return a list with all of the uploaded files"""
         return [django_file for field_name, django_file in self.files.items()
                 if field_name != "base_file"]
+
+    def _get_files_paths(self):
+        """Return a list with all of the uploaded files"""
+        files_paths = (
+            self.cleaned_data.get("dbf_file_path", None),
+            self.cleaned_data.get("shx_file_path", None),
+            self.cleaned_data.get("prj_file_path", None),
+            self.cleaned_data.get("xml_file_path", None),
+            self.cleaned_data.get("sld_file_path", None),
+        )
+        return [url for url in files_paths if url]
+
+    def get_uploaded_or_smartopen_files_paths(self):
+        """Return a list with all of the uploaded files"""
+        files_paths = (
+            self.cleaned_data.get("base_file_path", None),
+            self.cleaned_data.get("dbf_file_path", None),
+            self.cleaned_data.get("shx_file_path", None),
+            self.cleaned_data.get("prj_file_path", None),
+            self.cleaned_data.get("xml_file_path", None),
+            self.cleaned_data.get("sld_file_path", None),
+        )
+        all_file_paths = [smartopen_file.uri_path for smartopen_file in files_paths if smartopen_file]
+        # Todo: Finish
+        # [django_file.name for django_file in self.files.values()]
+        # [django_file.path for django_file in self.files.values()]
+        return all_file_paths
 
     def _get_uploaded_files_total_size(self):
         """Return a list with all of the uploaded files"""

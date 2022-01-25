@@ -44,13 +44,15 @@ def _supported_type(ext, supported_types):
     return any([type_.matches(ext) for type_ in supported_types])
 
 
-def validate_uploaded_files(cleaned, uploaded_files, field_spatial_types):
+def validate_uploaded_files(cleaned, uploaded_files, uploaded_files_paths, field_spatial_types, base_file_name):
     logger.debug(f"uploaded_files: {uploaded_files}")
     requires_datastore = () if ogc_server_settings.DATASTORE else (
         'csv',
         'kml')
     types = [t for t in files.types if t.code not in requires_datastore]
-    base_ext = os.path.splitext(cleaned["base_file"].name)[-1].lower()[1:]
+
+    # Todo: get file name not based on url, it sometimes can be misleading
+    base_ext = os.path.splitext(base_file_name)[-1].lower()[1:]
     if not _supported_type(base_ext, types) and base_ext.lower() != "zip":
         raise forms.ValidationError(
             "%(supported)s files are supported. You uploaded a "
@@ -87,9 +89,9 @@ def validate_uploaded_files(cleaned, uploaded_files, field_spatial_types):
             raise forms.ValidationError(
                 _("Could not find any kml files inside the uploaded kmz"))
     elif base_ext.lower() == "shp":
-        file_paths = [f.name for f in uploaded_files]
-        if cleaned["base_file"].name not in file_paths:
-            file_paths += [cleaned["base_file"].name]
+        file_paths = [f.name for f in uploaded_files] or [f.uri_path for f in uploaded_files_paths]
+        if base_file_name not in file_paths:
+            file_paths += [base_file_name]
         valid_extensions = _validate_shapefile_components(
             file_paths)
     elif base_ext.lower() == "kml":
