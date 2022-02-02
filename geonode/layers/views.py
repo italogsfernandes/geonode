@@ -22,7 +22,6 @@ import json
 import shutil
 import decimal
 import logging
-import tempfile
 import warnings
 import traceback
 
@@ -85,8 +84,8 @@ from geonode.utils import (
 )
 from geonode.geoserver.helpers import (
     ogc_server_settings,
-    select_relevant_files,
-    write_uploaded_files_to_disk)
+    select_relevant_files
+)
 from geonode.geoserver.security import set_geowebcache_invalidate_cache
 
 if check_ogc_backend(geoserver.BACKEND_PACKAGE):
@@ -209,19 +208,15 @@ def dataset_upload_metadata(request):
     form = NewLayerUploadForm(request.POST, request.FILES)
 
     if form.is_valid():
-
-        tempdir = tempfile.mkdtemp(dir=settings.STATIC_ROOT)
-
+        data_retriever_group = form.cleaned_data["data_retriever_group"]
         relevant_files = select_relevant_files(
             ['xml'],
-            iter(request.FILES.values())
+            data_retriever_group.get_paths(allow_transfer=False)
         )
 
         logger.debug(f"relevant_files: {relevant_files}")
 
-        write_uploaded_files_to_disk(tempdir, relevant_files)
-
-        base_file = os.path.join(tempdir, form.cleaned_data["base_file"].name)
+        base_file = data_retriever_group.get("base_file").get_path(allow_transfer=False)
 
         name = form.cleaned_data['dataset_title']
         layer = Dataset.objects.filter(typename=name)
@@ -264,6 +259,8 @@ def dataset_upload_metadata(request):
             content_type='application/json',
             status=status_code)
     else:
+        if hasattr(form, "data_retriever_group"):
+            form.data_retriever_group.delete_files()
         for e in form.errors.values():
             errormsgs.extend([escape(v) for v in e])
         out['errors'] = form.errors
