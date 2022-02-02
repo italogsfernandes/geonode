@@ -1176,8 +1176,9 @@ class HttpClient:
         if action:
             _req_tout = timeout or self.timeout
             try:
-                if "http://localhost:8080/geoserver/" in url:
-                    url = url.replace("http://localhost:8080/geoserver/", "http://geoserver:8080/geoserver/")
+                url = url.replace("localhost/geoserver/", "geoserver:8080/geoserver/")
+                url = url.replace("localhost:80/geoserver/", "geoserver:8080/geoserver/")
+                url = url.replace("localhost:8080/geoserver/", "geoserver:8080/geoserver/")
                 response = action(
                     url=url,
                     data=data,
