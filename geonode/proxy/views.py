@@ -169,10 +169,18 @@ def proxy(request, url=None, response_callback=None,
         from geonode.geoserver.helpers import ogc_server_settings
         _url = _url.replace(
             f'{settings.SITEURL}geoserver',
-            ogc_server_settings.LOCATION.rstrip('/'))
+            ogc_server_settings.LOCATION.rstrip('/')
+        ).replace(
+            settings.GEOSERVER_PUBLIC_LOCATION.rstrip('/'),
+            ogc_server_settings.LOCATION.rstrip('/')
+        )
         _data = _data.replace(
             f'{settings.SITEURL}geoserver',
-            ogc_server_settings.LOCATION.rstrip('/'))
+            ogc_server_settings.LOCATION.rstrip('/')
+        ).replace(
+            settings.GEOSERVER_PUBLIC_LOCATION.rstrip('/'),
+            ogc_server_settings.LOCATION.rstrip('/')
+        )
 
     response, content = http_client.request(
         _url,
